@@ -6,6 +6,7 @@ import java.net.URLDecoder;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -21,13 +22,18 @@ import javax.websocket.OnMessage;
 import javax.websocket.OnOpen;
 import javax.websocket.Session;
 
+import edu.cmu.zhexinq.webmobilegroupchat.*;
 
 @ServerEndpoint("/chat")
 public class SocketServer {
 
-	// set to store all the live sessions
-	private static final Set<Session> sessions = Collections
-			.synchronizedSet(new HashSet<Session>());
+	// map group code to sessions
+	private static final Map<String, GroupSessions> groupRecords = Collections
+			.synchronizedMap(new LinkedHashMap<String, GroupSessions>());
+	
+//	// set to store all the live sessions
+//	private static final Set<Session> sessions = Collections
+//			.synchronizedSet(new HashSet<Session>());
 	
 	// mapping between session and person name
 	private static final HashMap<String, String> nameSessionPair = new HashMap<String, String>();
@@ -86,9 +92,28 @@ public class SocketServer {
 		System.out.printf("get session name: %s, session group code: %s, session action: %s, isOldUser: %s\n", 
 				 name, groupCode, action, isOldUser);
 		
-		// do operation according to delete
-		if (action.equals("delete")) {
-			
+		// get sessions out of the group code
+		GroupSessions singleGroupInfo = groupRecords.get(groupCode);
+		
+		// request for create
+		if (action.equals("create") && singleGroupInfo == null) {
+			System.out.println("Create a new group for: " + groupCode);
+			GroupSessions newGroup = new GroupSessions();
+			newGroup.addMember();
+			newGroup.addSession(session);
+			groupRecords.put(groupCode, newGroup);
+			printRecords();
+		} else if (action.equals("join") && singleGroupInfo != null) { // request for join
+			singleGroupInfo.addSession(session);
+			if (isOldUser.equals("false"))
+				singleGroupInfo.addMember();
+			printRecords();
+		} else if (action.equals("delete") && singleGroupInfo != null) { // do operation according to delete
+			// not member in the group, remove it, otherwise decrement count
+			if (singleGroupInfo.getMemberCount() == 1)
+				groupRecords.remove(groupCode);
+			else 
+				singleGroupInfo.decrementMember();
 			// close the connection
 			try {
 				session.close();
@@ -96,17 +121,28 @@ public class SocketServer {
 				System.out.println("Error closing session " + session.getId());
 				e.printStackTrace();
 			} 
-			
+			printRecords();
+			return;
+		} else {
+			System.out.println("Bad request closing the client.");
+			try {
+				session.getBasicRemote().sendText(jsonUtils
+						.getClientDetailsJson(groupCode, session.getId(), "reject"));
+				session.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
 			return;
 		}
+		
 		
 		// mapping client session id and name
 		nameSessionPair.put(session.getId(), name);
 		// mapping client session id and group code
 		groupSessionPair.put(session.getId(), groupCode);
-
-		// adding session to session list
-		sessions.add(session);
+		
+//		// adding session to session list
+//		sessions.add(session);
 		
 		try {
 			// send session id to the client just connected 
@@ -156,48 +192,56 @@ public class SocketServer {
 		
 		// get the client name that exited
 		String name = nameSessionPair.get(session.getId());
+		// get the session's group code
+		String groupCode = groupSessionPair.get(session.getId());
 		
 		// remove the session from sessions list and corresponding session-group, session-name pair
-		sessions.remove(session);
+		GroupSessions singleGroupInfo = groupRecords.get(groupCode);
+		singleGroupInfo.removeSession(session);
 		nameSessionPair.remove(session.getId());
 		groupSessionPair.remove(session.getId());
 		
 		// notify all the clients about person exit
-		for (String sessionId : groupSessionPair.keySet()) {
-			if (sessionId.equals(session.getId()))
-				sendMessageToAll(groupSessionPair.get(sessionId), sessionId, 
-						name, " left conversation!", false, true);
-		}
+		sendMessageToAll(groupCode, session.getId(), name, " left conversation!", false, true);
 	}
 	
 	// send message to all clients
 	private void sendMessageToAll(String groupCode, String sessionId, String name, String message,
 			boolean isNewClient, boolean isExit) {
+		// get sessions in a certain group
+		HashSet<Session> sessions = groupRecords.get(groupCode).getSessions();
 		
 		// loop through all the sessions and send the message individually
 		for (Session s : sessions) {
-			if (groupSessionPair.get(s.getId()).equals(groupCode)) {
 				String json = null;
-				
-				// check if the message is about new client joined
-				if (isNewClient) {
-					json = jsonUtils.getNewClientJson(groupCode, sessionId, name, message, sessions.size());
-				} else if (isExit) {
-					// check if the person left the conversation
-					json = jsonUtils.getClientExitJson(groupCode, sessionId, name, message, sessions.size());
-				} else {
-					// normal chat conversation message
-					json = jsonUtils.getSendAllMessageJson(groupCode, sessionId, name, message);
-				}
-				
-				try {
-					System.out.println("Sending message to: " + sessionId + ", " + json);
-					s.getBasicRemote().sendText(json);
-				} catch (IOException e) {
-					System.out.print("error in sending. " + s.getId() + ", " + e.getMessage());
-					e.printStackTrace();
-				}
-			}	
+			System.out.println("send message to session: " + s.getId());
+			// check if the message is about new client joined
+			if (isNewClient) {
+				json = jsonUtils.getNewClientJson(groupCode, sessionId, name, message, sessions.size());
+			} else if (isExit) {
+				// check if the person left the conversation
+				json = jsonUtils.getClientExitJson(groupCode, sessionId, name, message, sessions.size());
+			} else {
+				// normal chat conversation message
+				json = jsonUtils.getSendAllMessageJson(groupCode, sessionId, name, message);
+			}
+			
+			try {
+				System.out.println("Sending message to: " + sessionId + ", " + json);
+				s.getBasicRemote().sendText(json);
+			} catch (IOException e) {
+				System.out.print("error in sending. " + s.getId() + ", " + e.getMessage());
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	// helper method to print the group records
+	public void printRecords() {
+		System.out.println("(----- Group records ---)");
+		for (String key : groupRecords.keySet()) {
+			System.out.println("group code: " + key);
+			groupRecords.get(key).printInfo();
 		}
 	}
 }
