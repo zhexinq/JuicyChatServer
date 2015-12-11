@@ -85,6 +85,21 @@ public class SocketServer {
 		isOldUser = decodeQueryParam(queryParams, "isOldUser");
 		System.out.printf("get session name: %s, session group code: %s, session action: %s, isOldUser: %s\n", 
 				 name, groupCode, action, isOldUser);
+		
+		// do operation according to delete
+		if (action.equals("delete")) {
+			
+			// close the connection
+			try {
+				session.close();
+			} catch(IOException e) {
+				System.out.println("Error closing session " + session.getId());
+				e.printStackTrace();
+			} 
+			
+			return;
+		}
+		
 		// mapping client session id and name
 		nameSessionPair.put(session.getId(), name);
 		// mapping client session id and group code
@@ -142,13 +157,16 @@ public class SocketServer {
 		// get the client name that exited
 		String name = nameSessionPair.get(session.getId());
 		
-		// remove the session from sessions list
+		// remove the session from sessions list and corresponding session-group, session-name pair
 		sessions.remove(session);
+		nameSessionPair.remove(session.getId());
+		groupSessionPair.remove(session.getId());
 		
 		// notify all the clients about person exit
 		for (String sessionId : groupSessionPair.keySet()) {
 			if (sessionId.equals(session.getId()))
-				sendMessageToAll(groupSessionPair.get(sessionId), sessionId, name, " left conversation!", false, true);
+				sendMessageToAll(groupSessionPair.get(sessionId), sessionId, 
+						name, " left conversation!", false, true);
 		}
 	}
 	
