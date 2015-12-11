@@ -47,6 +47,11 @@ public class GroupSessions {
 		sessions.remove(s);
 	}
 	
+	// online count
+	public int onlineCount() {
+		return sessions.size();
+	}
+	
 	public void printInfo() {
 		for (Session s : sessions) {
 			System.out.println("session: " + s.getId()); 

@@ -104,11 +104,14 @@ public class SocketServer {
 			groupRecords.put(groupCode, newGroup);
 			printRecords();
 		} else if (action.equals("join") && singleGroupInfo != null) { // request for join
+			System.out.println(""
+					+ "join a exist group for: " + groupCode);
 			singleGroupInfo.addSession(session);
 			if (isOldUser.equals("false"))
 				singleGroupInfo.addMember();
 			printRecords();
 		} else if (action.equals("delete") && singleGroupInfo != null) { // do operation according to delete
+			System.out.println("Delete a exist group for: " + groupCode);
 			// not member in the group, remove it, otherwise decrement count
 			if (singleGroupInfo.getMemberCount() == 1)
 				groupRecords.remove(groupCode);
@@ -125,6 +128,7 @@ public class SocketServer {
 			return;
 		} else {
 			System.out.println("Bad request closing the client.");
+			printRecords();
 			try {
 				session.getBasicRemote().sendText(jsonUtils
 						.getClientDetailsJson(groupCode, session.getId(), "reject"));
